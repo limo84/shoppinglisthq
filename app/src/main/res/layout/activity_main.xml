@@ -24,6 +24,7 @@
             android:layout_height="wrap_content"
             android:hint="@string/editText_hint_quantity"
             android:inputType="number"
+            android:id="@+id/editText_quantity"
             android:layout_weight="1"/>
 
         <EditText
