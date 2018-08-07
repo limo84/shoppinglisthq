@@ -1,10 +1,13 @@
 package de.programmierenlernenhq.shoppinglisthq;
 
+import android.content.DialogInterface;
 import android.os.Bundle;
+import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.util.SparseBooleanArray;
 import android.view.ActionMode;
+import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
 
@@ -113,49 +116,95 @@ public class MainActivity extends AppCompatActivity {
         shoppingMemosListView.setChoiceMode(ListView.CHOICE_MODE_MULTIPLE_MODAL);
 
         shoppingMemosListView.setMultiChoiceModeListener(new AbsListView.MultiChoiceModeListener() {
+
+            int selCount = 0;
+
+            // In dieser Callback-Methode zählen wir die ausgewählen Listeneinträge mit
+            // und fordern ein Aktualisieren der Contextual Action Bar mit invalidate() an
             @Override
             public void onItemCheckedStateChanged(ActionMode mode, int position, long id, boolean checked) {
-
+                if (checked) {
+                    selCount++;
+                } else {
+                    selCount--;
+                }
+                String cabTitle = selCount + " " + getString(R.string.cab_checked_string);
+                mode.setTitle(cabTitle);
+                mode.invalidate();
             }
 
+            // In dieser Callback-Methode legen wir die CAB-Menüeinträge an
             @Override
             public boolean onCreateActionMode(ActionMode mode, Menu menu) {
                 getMenuInflater().inflate(R.menu.menu_contextual_action_bar, menu);
                 return true;
             }
 
+            // In dieser Callback-Methode reagieren wir auf den invalidate() Aufruf
+            // Wir lassen das Edit-Symbol verschwinden, wenn mehr als 1 Eintrag ausgewählt ist
             @Override
             public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
-                return false;
+                MenuItem item = menu.findItem(R.id.cab_change);
+                if (selCount == 1) {
+                    item.setVisible(true);
+                } else {
+                    item.setVisible(false);
+                }
+
+                return true;
             }
 
+            // In dieser Callback-Methode reagieren wir auf Action Item-Klicks
+            // Je nachdem ob das Löschen- oder Ändern-Symbol angeklickt wurde
             @Override
             public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
-                switch (item.getItemId()) {
+                boolean returnValue = true;
+                SparseBooleanArray touchedShoppingMemosPositions = shoppingMemosListView.getCheckedItemPositions();
 
+                switch (item.getItemId()) {
                     case R.id.cab_delete:
-                        SparseBooleanArray touchedShoppingMemosPositions = shoppingMemosListView.getCheckedItemPositions();
                         for (int i = 0; i < touchedShoppingMemosPositions.size(); i++) {
                             boolean isChecked = touchedShoppingMemosPositions.valueAt(i);
                             if (isChecked) {
-                                int positionInListView = touchedShoppingMemosPositions.keyAt(i);
-                                ShoppingMemo shoppingMemo = (ShoppingMemo) shoppingMemosListView.getItemAtPosition(positionInListView);
-                                Log.d(LOG_TAG, "Position im ListView: " + positionInListView + " Inhalt: " + shoppingMemo.toString());
+                                int postitionInListView = touchedShoppingMemosPositions.keyAt(i);
+                                ShoppingMemo shoppingMemo = (ShoppingMemo) shoppingMemosListView.getItemAtPosition(postitionInListView);
+                                Log.d(LOG_TAG, "Position im ListView: " + postitionInListView + " Inhalt: " + shoppingMemo.toString());
                                 dataSource.deleteShoppingMemo(shoppingMemo);
                             }
                         }
                         showAllListEntries();
                         mode.finish();
-                        return true;
+                        break;
+
+                    case R.id.cab_change:
+                        Log.d(LOG_TAG, "Eintrag ändern");
+                        for (int i = 0; i < touchedShoppingMemosPositions.size(); i++) {
+                            boolean isChecked = touchedShoppingMemosPositions.valueAt(i);
+                            if (isChecked) {
+                                int postitionInListView = touchedShoppingMemosPositions.keyAt(i);
+                                ShoppingMemo shoppingMemo = (ShoppingMemo) shoppingMemosListView.getItemAtPosition(postitionInListView);
+                                Log.d(LOG_TAG, "Position im ListView: " + postitionInListView + " Inhalt: " + shoppingMemo.toString());
+
+                                AlertDialog editShoppingMemoDialog = createEditShoppingMemoDialog(shoppingMemo);
+                                editShoppingMemoDialog.show();
+                            }
+                        }
+
+                        mode.finish();
+                        break;
 
                     default:
-                        return false;
+                        returnValue = false;
+                        break;
                 }
+                return returnValue;
             }
 
+            // In dieser Callback-Methode reagieren wir auf das Schließen der CAB
+            // Wir setzen den Zähler auf 0 zurück
             @Override
             public void onDestroyActionMode(ActionMode mode) {
-
+                selCount = 0;
             }
         });
     }
@@ -180,5 +229,52 @@ public class MainActivity extends AppCompatActivity {
         }
 
         return super.onOptionsItemSelected(item);
+    }
+
+    private AlertDialog createEditShoppingMemoDialog(final ShoppingMemo shoppingMemo) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        LayoutInflater inflater = getLayoutInflater();
+
+        View dialogsView = inflater.inflate(R.layout.dialog_edit_shopping_memo, null);
+
+        final EditText editTextNewQuantity = (EditText) dialogsView.findViewById(R.id.editText_new_quantity);
+        editTextNewQuantity.setText(String.valueOf(shoppingMemo.getQuantity()));
+
+        final EditText editTextNewProduct = findViewById(R.id.editText_new_product);
+        editTextNewProduct.setText(shoppingMemo.getProduct());
+
+        builder.setView(dialogsView)
+                .setTitle(R.string.dialog_title)
+                .setPositiveButton(R.string.dialog_button_positive, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        String quantityString = editTextNewQuantity.getText().toString();
+                        String product = editTextNewProduct.getText().toString();
+
+                        if ((TextUtils.isEmpty(quantityString)) || (TextUtils.isEmpty(product))) {
+                            Log.d(LOG_TAG, "Ein Eintrag enthielt keinen Text. Daher Abbruch der Änderung.");
+                            return;
+                        }
+
+                        int quantity = Integer.parseInt(quantityString);
+
+                        // An dieser Stelle schreiben wir die geänderten Daten in die SQLite Datenbank
+                        ShoppingMemo updatedShoppingMemo = dataSource.updateShoppingMemo(shoppingMemo.getId(), product, quantity);
+
+                        Log.d(LOG_TAG, "Alter Eintrag - ID: " + shoppingMemo.getId() + " Inhalt: " + shoppingMemo.toString());
+                        Log.d(LOG_TAG, "Neuer Eintrag - ID: " + updatedShoppingMemo.getId() + " Inhalt: " + updatedShoppingMemo.toString());
+
+                        showAllListEntries();
+                        dialog.dismiss();
+                    }
+                })
+                .setNegativeButton(R.string.dialog_button_negative, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        dialog.cancel();
+                    }
+                });
+
+        return builder.create();
     }
 }
